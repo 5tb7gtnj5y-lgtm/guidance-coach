@@ -65,13 +65,59 @@ export function retrieve(sections: Section[], question: string, step: number) {
   const current=sections[Math.max(0,Math.min(step,sections.length-1))];
   return [current,...ranked.map(r=>r.section)].filter((s,i,all)=>s&&all.findIndex(t=>t.id===s.id)===i).slice(0,6);
 }
+export class CoachVerificationError extends Error {}
+
+function sourceQuote(source: string, quote: string): string | null {
+  if(source.includes(quote))return quote;
+  // PDF line breaks, non-breaking spaces and smart quotes are formatting only.
+  // Keep case, words, numbers and all other punctuation exact. Return the
+  // original source substring so highlighting and citations still match it.
+  const pattern=Array.from(quote.trim().replace(/\s+/gu," ")).map(char=>{
+    if(char===" ")return "\\s+";
+    if("'‘’".includes(char))return "['‘’]";
+    if('"“”'.includes(char))return '["“”]';
+    return char.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+  }).join("");
+  const match=new RegExp(pattern,"u").exec(source);
+  return match&&match[0].length>=8&&match[0].length<=500?match[0]:null;
+}
+
 export function parseCoachResponse(raw: string, allowed: Section[]) {
   let text=raw.trim().replace(/^```(?:json)?\s*/i,"").replace(/\s*```$/,"");
   const start=text.indexOf("{"),end=text.lastIndexOf("}");
   if(start>=0&&end>start)text=text.slice(start,end+1);
-  let parsed: Record<string,unknown>; try{parsed=JSON.parse(text);}catch{throw new Error("The coach could not produce a verified reply. Please try again.");}
-  if(typeof parsed.reply!=="string"||!parsed.reply.trim()||parsed.reply.length>6000)throw new Error("The coach reply could not be verified. Please try again.");
-  const citations: Citation[] = Array.isArray(parsed.citations) ? parsed.citations.filter((c: Citation)=>c&&typeof c.sectionId==="string"&&typeof c.quote==="string"&&c.quote.trim().length>=8&&c.quote.length<=500&&allowed.some(s=>s.id===c.sectionId&&s.text.includes(c.quote))).slice(0,4) : [];
-  if(!citations.length)throw new Error("The coach could not verify its reply against the guidance. Please try again or read the source section.");
+  let parsed: Record<string,unknown>; try{parsed=JSON.parse(text);}catch{throw new CoachVerificationError("The coach could not produce a verified reply. Please try again.");}
+  if(!parsed||typeof parsed.reply!=="string"||!parsed.reply.trim()||parsed.reply.length>6000)throw new CoachVerificationError("The coach reply could not be verified. Please try again.");
+  const citations: Citation[]=[];
+  for(const candidate of Array.isArray(parsed.citations)?parsed.citations:[]){
+    if(!candidate||typeof candidate.sectionId!=="string"||typeof candidate.quote!=="string"||candidate.quote.trim().length<8||candidate.quote.length>500)continue;
+    const section=allowed.find(s=>s.id===candidate.sectionId);
+    const quote=section?sourceQuote(section.text,candidate.quote):null;
+    if(quote)citations.push({sectionId:candidate.sectionId,quote});
+    if(citations.length===4)break;
+  }
+  if(!citations.length)throw new CoachVerificationError("The coach could not verify its reply against the guidance. Please try again or read the source section.");
   return {content: parsed.reply.trim(),question: typeof parsed.question==="string"?parsed.question.slice(0,600):"",citations};
+}
+
+export async function verifiedCoachReply(generate:(retry:boolean)=>Promise<string>,allowed:Section[]) {
+  const raw=await generate(false);
+  try{return parseCoachResponse(raw,allowed);}
+  catch(error){
+    if(!(error instanceof CoachVerificationError))throw error;
+    // One fresh generation; rejected replies never enter the saved history.
+    const corrected=await generate(true);
+    try{return parseCoachResponse(corrected,allowed);}
+    catch(secondError){
+      if(!(secondError instanceof CoachVerificationError))throw secondError;
+      const section=allowed.find(s=>s.text.trim().length>=8);
+      if(!section)throw secondError;
+      const quote=section.text.trim().slice(0,500);
+      return {
+        content:`I couldn’t verify the generated explanation. Here is a source excerpt from “${section.title}”:\n\n${quote}`,
+        question:"Which part of this guidance would you like help with?",
+        citations:[{sectionId:section.id,quote}],
+      };
+    }
+  }
 }

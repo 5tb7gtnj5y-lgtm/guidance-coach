@@ -57,7 +57,7 @@ Tests run the actual bundled Worker in Cloudflare's local runtime with local D1 
 | AI inference | `AI` binding |
 | Static frontend | `ASSETS` binding |
 
-The model is set through `AI_MODEL` in `wrangler.jsonc`. Coaching retrieves up to six relevant source sections and recent conversation context. Responses must contain at least one quotation that matches a supplied section exactly. This validates quotations; it does not independently verify every sentence of a model's explanation.
+The model is set through `AI_MODEL` in `wrangler.jsonc`. Coaching retrieves up to six relevant source sections and recent conversation context. Responses must contain at least one quotation from a supplied section. Matching tolerates whitespace and straight/curly quotation marks, then restores the original source substring for display and highlighting. Changed words, numbers and incorrect section IDs remain rejected. A failed check triggers one fresh AI generation with guidance on quoting accurately. If both checks fail, the coach displays a clearly labelled source excerpt instead of the unverified explanation. Only the final response enters the saved conversation. Connection or allowance failures are not retried. This validates quotations; it does not independently verify every sentence of a model's explanation.
 
 ## Access and progress
 

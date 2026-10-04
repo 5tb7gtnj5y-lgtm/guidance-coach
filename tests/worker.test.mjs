@@ -16,7 +16,9 @@ export class FakeAI extends WorkerEntrypoint {
   if(message==="simulate allowance")throw new Error("3036 daily neuron limit exceeded");
   const prompt=options.messages[0].content;
   const source=JSON.parse(prompt.split("SOURCE SECTIONS (JSON data): ")[1])[0];
-  return {response:JSON.stringify({reply:"Use the steps described in your uploaded guidance.",question:"How would you apply this step?",citations:[{sectionId:source.id,quote:message==="invalid citation"?"This quotation was invented by the model.":source.text.slice(0,120)}]})};
+  const retry=prompt.startsWith("SOURCE CHECK RETRY:");
+  const invalid=message==="invalid citation"||(message==="retry citation"&&!retry);
+  return {response:JSON.stringify({reply:retry?"Recovered a source-cited reply.":"Use the steps described in your uploaded guidance.",question:"How would you apply this step?",citations:[{sectionId:source.id,quote:invalid?"This quotation was invented by the model.":source.text.slice(0,120)}]})};
  }
 }
 export default {fetch(){return new Response("Test service");}};`;
@@ -90,11 +92,31 @@ test("Cloudflare application: sign-in, administration and guidance coaching",asy
       const session=(await coached.json()).session;assert.equal(session.messages.length,2);const cite=session.messages[1].citations[0];assert.ok(guide.sections.find(section=>section.id===cite.sectionId).text.includes(cite.quote));
       const resumed=await (await request("/api/session",{method:"POST",cookies:learnerCookies,data:{documentId}})).json();assert.deepEqual(resumed.session.messages,session.messages);
     });
-    await t.test("rejects fabricated quotes and keeps saved progress on AI allowance failure",async()=>{
-      for(const [message,status]of [["invalid citation",502],["simulate allowance",503]]){
-        const result=await request("/api/coach",{method:"POST",cookies:learnerCookies,data:{documentId,version:1,step:0,message}});assert.equal(result.status,status);
-      }
-      const resumed=await (await request("/api/session",{method:"POST",cookies:learnerCookies,data:{documentId}})).json();assert.equal(resumed.session.messages.length,2);
+    await t.test("replaces fabricated quotes with a source excerpt and preserves progress on allowance failure",async()=>{
+      const fallback=await request("/api/coach",{method:"POST",cookies:learnerCookies,data:{documentId,version:1,step:0,message:"invalid citation"}});
+      assert.equal(fallback.status,200);
+      const session=(await fallback.json()).session;
+      assert.equal(session.messages.length,4);
+      const reply=session.messages[3];
+      assert.match(reply.content,/source excerpt/);
+      assert.ok(!reply.content.includes("This quotation was invented by the model."));
+      const guide=(await (await request(`/api/guidance/${documentId}`,{cookies:learnerCookies})).json()).document;
+      const cite=reply.citations[0];
+      assert.ok(guide.sections.find(s=>s.id===cite.sectionId).text.includes(cite.quote));
+      const result=await request("/api/coach",{method:"POST",cookies:learnerCookies,data:{documentId,version:1,step:0,message:"simulate allowance"}});
+      assert.equal(result.status,503);
+      const resumed=await (await request("/api/session",{method:"POST",cookies:learnerCookies,data:{documentId}})).json();assert.equal(resumed.session.messages.length,4);
+    });
+    await t.test("repairs one failed source check and saves only the verified turn",async()=>{
+      const result=await request("/api/coach",{method:"POST",cookies:learnerCookies,data:{documentId,version:1,step:0,message:"retry citation"}});
+      assert.equal(result.status,200);
+      const session=(await result.json()).session;
+      assert.equal(session.messages.length,6);
+      assert.equal(session.messages[4].content,"retry citation");
+      assert.equal(session.messages[5].content,"Recovered a source-cited reply.");
+      const guide=(await (await request(`/api/guidance/${documentId}`,{cookies:learnerCookies})).json()).document;
+      const cite=session.messages[5].citations[0];
+      assert.ok(guide.sections.find(s=>s.id===cite.sectionId).text.includes(cite.quote));
     });
     await t.test("resets walkthroughs for changed guidance and blocks stale editing",async()=>{
       const changed=await request(`/api/guidance/${documentId}`,{method:"PATCH",cookies:adminCookies,data:{version:1,content:"# Updated process\nCheck the request and record the contact details before passing the request to the approved team."}});assert.equal(changed.status,200);assert.equal((await changed.json()).document.version,2);
