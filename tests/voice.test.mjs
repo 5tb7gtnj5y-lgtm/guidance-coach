@@ -57,6 +57,20 @@ test("voice is opt-in: construction never opens the microphone or speaks", () =>
   assert.equal(f.spoken.length, 0);
   assert.equal(f.controller.snapshot().spoken, false);
 });
+test("a page microphone policy block is distinguished from a browser permission denial", () => {
+  for (const property of ["permissionsPolicy", "featurePolicy"]) {
+    const f = fixture();
+    f.host.document = { [property]: { allowsFeature: name => { assert.equal(name, "microphone"); return false; } } };
+    assert.equal(f.controller.startListening("Keep this draft."), false);
+    assert.equal(f.captures.length, 0);
+    assert.equal(f.drafts.length, 0);
+    assert.match(f.notices.at(-1).text, /This page is blocking microphone access/);
+    f.host.document[property].allowsFeature = () => true;
+    assert.equal(f.controller.startListening("Keep this draft."), true);
+    assert.equal(f.captures[0].starts, 1);
+    f.controller.reset();
+  }
+});
 test("standard and Safari-prefixed speech recognition transcribe one reviewed turn", () => {
   for (const prefixed of [false, true]) {
     const f = fixture({ prefixed });

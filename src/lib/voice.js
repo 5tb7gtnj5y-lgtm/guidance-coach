@@ -77,6 +77,13 @@ const host = globalThis;
         this.message("Voice input is not supported in this browser. Type your reply, or use your keyboard's dictation button.", true);
         return false;
       }
+      const policy = this.environment.document?.permissionsPolicy || this.environment.document?.featurePolicy;
+      let pageAllowsMicrophone = true;
+      try { pageAllowsMicrophone = policy?.allowsFeature?.("microphone") !== false; } catch {}
+      if (!pageAllowsMicrophone) {
+        this.message("This page is blocking microphone access. Reload the latest version of the site and try Talk again. Your reply is still available to type.", true);
+        return false;
+      }
       this.stopSpeaking();
       const base = String(draft).trim();
       if (base.length >= 1800) {

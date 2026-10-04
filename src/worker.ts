@@ -1,7 +1,7 @@
 import { handleAPI } from "./lib/server";
 import { handleAuth, type AuthRuntime } from "./auth";
 type Runtime=AuthRuntime&{BUCKET?:R2Bucket;AI?:unknown;ASSETS?:Fetcher};
-const security={"X-Content-Type-Options":"nosniff","Referrer-Policy":"no-referrer","Permissions-Policy":"camera=(), microphone=(), geolocation=()","Content-Security-Policy":"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"};
+const security={"X-Content-Type-Options":"nosniff","Referrer-Policy":"no-referrer","Permissions-Policy":"camera=(), microphone=(self), geolocation=()","Content-Security-Policy":"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"};
 export default {
   async fetch(req:Request,env:Runtime):Promise<Response>{
     const path=new URL(req.url).pathname;let response:Response;

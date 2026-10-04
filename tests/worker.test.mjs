@@ -54,6 +54,7 @@ test("Cloudflare application: sign-in, administration and guidance coaching",asy
     await t.test("serves the built website, assets and ready health check",async()=>{
       const page=await request("/");assert.equal(page.status,200);assert.match(await page.text(),/Guidance Coach/);
       assert.match(page.headers.get("Content-Security-Policy"),/frame-ancestors 'none'/);
+      assert.equal(page.headers.get("Permissions-Policy"),"camera=(), microphone=(self), geolocation=()");
       const pdfWorker=await request("/pdf.worker.min.mjs");assert.equal(pdfWorker.status,200);assert.ok((await pdfWorker.text()).length>10000);
       const health=await (await request("/api/health")).json();assert.equal(health.status,"ready");assert.equal(health.adminConfigured,true);
     });
