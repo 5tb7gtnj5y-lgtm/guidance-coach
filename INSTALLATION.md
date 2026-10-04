@@ -81,6 +81,8 @@ Your Worker URL followed by `/api/health` should show `"status":"ready"`. It che
 
 Commit source changes to the connected `main` branch. Cloudflare builds and deploys them automatically. Existing guidance, uploads and conversations stay in D1 and R2. New database changes belong in a new migration file; keep already-applied migrations unchanged.
 
+The deployment preserves runtime variables set in the dashboard (`keep_vars` is enabled). If `ADMIN_PASSWORD` or `LEARNER_ACCESS_CODE` is also saved in Cloudflare's build environment, `npm run deploy` copies that value into an encrypted Worker runtime secret during deployment. Those build values override the corresponding runtime values on each deployment, so update both locations when changing a password, or remove the build copy and manage it only as a runtime secret. Password values are never committed or logged; the deployment removes its private temporary secret file afterwards.
+
 Change either sign-in secret in Cloudflare whenever needed. Existing sessions for that role must sign in again. Learners keep their progress in the same browser unless they clear its cookies.
 
 ## Optional: deploy from your computer
