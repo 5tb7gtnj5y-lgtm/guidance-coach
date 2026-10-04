@@ -18,3 +18,97 @@
 .dictation-controls .listening{background:#e5f5ed;border-color:var(--teal);color:var(--teal)}
 .voice-status{margin:0 0 .5rem;min-height:1.1rem}.voice-error{color:#a33d4f}.source-selector .read-section{margin-top:.6rem;width:100%}
 @media(max-width:700px){.voice-toolbar{padding:.65rem .9rem;gap:.5rem}.voice-option{width:100%}.dictation-controls{align-items:flex-start}.dictation-controls>span{padding-top:.35rem}}
+
+/* A single learning surface. Supporting tools open only when needed. */
+.simple-learning main{max-width:960px;padding:2rem 1.5rem}
+.simple-admin main{max-width:1100px;padding:2rem 1.5rem}
+.simple-learning .page-heading,.simple-admin .page-heading{margin-bottom:1.5rem}
+.simple-learning .page-heading h1,.simple-admin .page-heading h1{font-size:1.75rem;letter-spacing:-.025em}
+.app-shell .topbar{height:68px;padding:0 1.5rem;gap:2.5rem}
+.app-shell .topbar nav{gap:1.25rem}
+.learning-workspace{min-width:0}
+.guide-picker{margin-bottom:1.25rem}
+.guide-picker label,.simple-composer form>label,.reader-controls>label{display:block;font-size:1rem;font-weight:600;margin-bottom:.55rem}
+.guide-picker select,.reader-controls select{width:100%;min-width:0;min-height:48px;border:1px solid #b8c9d5;border-radius:8px;padding:.65rem .8rem;background:white;color:var(--ink);font-size:1rem}
+.learning-card{background:white;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.lesson-heading{padding:1.4rem 1.75rem 1.2rem;border-bottom:1px solid var(--line)}
+.step-count{color:var(--teal);font-size:.9rem;font-weight:600;margin-bottom:.4rem}
+.lesson-heading h2{font-size:1.3rem;line-height:1.45;overflow-wrap:anywhere}
+.lesson-heading .progress-track{margin-top:1rem;height:5px}
+.workspace-switch{display:flex;gap:1.2rem;padding:0 1.75rem;border-bottom:1px solid var(--line)}
+.workspace-switch button{padding:.8rem .2rem;min-height:48px;border-bottom:3px solid transparent;font-size:1rem;color:var(--muted)}
+.workspace-switch button[aria-pressed=true]{border-bottom-color:var(--teal);color:var(--teal)}
+.lesson-body,.guidance-reader{padding:1.5rem 1.75rem}
+.learning-card [hidden]{display:none!important}
+.learning-card .welcome-message{padding:0 0 1rem;max-width:100%}
+.learning-card .welcome-message h3{font-size:1.25rem;letter-spacing:0;margin:0 0 .65rem}
+.learning-card .welcome-message p{max-width:650px;font-size:1rem}
+.learning-card .welcome-message .primary{margin-top:1rem}
+.learning-card .chat-message{margin:0 0 1.2rem}
+.learning-card .message-byline{font-size:.9rem;margin-bottom:.65rem}
+.learning-card .message-content{font-size:1.05rem;line-height:1.7}
+.learning-card .coach-question{padding:1rem;margin-top:1.2rem}
+.learning-card .coach-question p{font-size:1.05rem}
+.learning-card .source-link{margin-top:.5rem;font-size:.9rem;justify-content:start;padding:0;min-height:44px}
+.conversation-history{margin-bottom:1.4rem;border-bottom:1px solid var(--line);padding-bottom:1rem}
+.conversation-history>div{margin-top:1rem;padding:1rem;background:#f8fafc;border-radius:8px}
+.conversation-history .message-content{font-size:1rem}
+.learning-card summary{cursor:pointer;font-weight:600;font-size:.9rem;color:#425b70;line-height:1.5;min-height:36px;padding:.4rem 0}
+.learning-card summary:focus-visible{outline:3px solid #eeb331;outline-offset:3px}
+.reply-tools{display:flex;align-items:start;flex-wrap:wrap;gap:.6rem 1rem;margin-bottom:1.25rem}
+.reply-tools>.text-button{font-size:.9rem;min-height:36px;padding:0}
+.extra-help{margin-left:auto}
+.extra-help>div{display:flex;gap:.6rem;flex-wrap:wrap;padding:.4rem 0}
+.simple-composer{border-top:1px solid var(--line);padding-top:1.4rem;margin-top:1.2rem}
+.simple-composer textarea{width:100%;min-height:100px;resize:vertical;max-height:320px;border:1px solid #b8c9d5;border-radius:8px;padding:.8rem .9rem;font-size:1rem;line-height:1.6;background:white;color:var(--ink)}
+.simple-composer textarea:focus{border-color:var(--teal)}
+.simple-composer textarea::placeholder{color:#697b8c}
+.answer-actions{display:flex;align-items:center;gap:.8rem;margin-top:.7rem}
+.answer-actions>.primary{margin-left:auto}
+.dictation-hint{font-size:.875rem;line-height:1.5;color:var(--muted)}
+.answer-actions .listening{background:#e5f5ed;border-color:var(--teal);color:var(--teal)}
+.simple-composer .voice-status{font-size:.875rem;line-height:1.5;margin:.65rem 0 0}
+.voice-settings{margin-top:.8rem}
+.voice-settings>div{padding:.9rem 1rem;background:#f8fafc;border:1px solid var(--line);border-radius:8px}
+.voice-settings .voice-option{font-size:.95rem}
+.voice-settings .voice-select{font-size:.9rem;margin-top:.8rem;flex-wrap:wrap}
+.voice-settings .voice-select select{font-size:.9rem;min-height:44px}
+.step-actions{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-top:1.3rem;padding-top:1.2rem;border-top:1px solid var(--line)}
+.step-actions .text-button{font-size:.875rem;padding:0;text-align:left}
+.reader-controls>div{display:flex;align-items:center;flex-wrap:wrap;gap:1rem;margin-top:.65rem}
+.reader-controls .text-button,.reader-controls a{font-size:.9rem;min-height:44px}
+.reader-controls a{margin-left:auto;display:inline-flex;align-items:center;gap:.4rem}
+.reader-text{padding:1.5rem 0;border-top:1px solid var(--line);margin-top:1rem}
+.reader-text h3{font-size:1.25rem;margin-bottom:1rem}
+.reader-text .source-text{font-size:1rem;line-height:1.8}
+.source-reminder{font-size:.875rem;color:var(--muted);margin:1rem 0;text-align:center}
+.simple-learning .site-footer,.simple-admin .site-footer{max-width:960px;padding:0 1.5rem 1.5rem;font-size:.875rem}
+.simple-learning .site-footer>span:last-child,.simple-admin .site-footer>span:last-child{display:none}
+.simple-admin .admin-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.simple-admin .guide-card{min-height:0;padding:1.3rem}
+.simple-admin .card-meta{font-size:.875rem}
+.simple-admin .card-actions{gap:.6rem;margin-top:1rem;padding-top:1rem}
+.simple-admin .admin-toolbar p{font-size:1rem;max-width:550px}
+@media(max-width:700px){
+  .app-shell .topbar{height:auto;min-height:64px;gap:.6rem;padding:.75rem 1rem}
+  .app-shell .topbar nav{gap:.6rem}
+  .simple-learning main,.simple-admin main{padding:1.25rem 1rem}
+  .simple-learning .page-heading h1,.simple-admin .page-heading h1{font-size:1.4rem}
+  .lesson-heading,.lesson-body,.guidance-reader{padding:1.15rem 1rem}
+  .lesson-heading h2{font-size:1.15rem}
+  .workspace-switch{padding:0 1rem}
+  .workspace-switch button{font-size:.95rem}
+  .learning-card .message-content,.learning-card .coach-question p{font-size:1rem}
+  .answer-actions{flex-wrap:wrap;gap:.6rem}
+  .dictation-hint{order:3;width:100%}
+  .extra-help{margin-left:0}
+  .step-actions{align-items:center;gap:.7rem}
+  .step-actions .primary{white-space:normal;text-align:center}
+  .reader-controls a{margin-left:0}
+  .simple-admin .admin-grid{grid-template-columns:1fr}
+  .simple-admin .admin-toolbar{flex-wrap:wrap}
+  .simple-admin .admin-toolbar p{max-width:100%}
+}
+@media(max-width:380px){.step-actions{align-items:stretch;flex-direction:column}.step-actions .text-button{justify-content:center}}
+.source-references{margin-top:.5rem}.source-references>div{display:flex;flex-wrap:wrap;gap:.25rem 1rem}.source-references .source-link{white-space:normal;text-align:left;margin-top:0}
+@media(max-width:700px){.app-shell .brand-mark{display:none}.app-shell .brand{font-size:1rem}}
