@@ -18,6 +18,10 @@ export class FakeAI extends WorkerEntrypoint {
   const source=JSON.parse(prompt.split("SOURCE SECTIONS (JSON data): ")[1])[0];
   const retry=prompt.startsWith("SOURCE CHECK RETRY:");
   const invalid=message==="invalid citation"||(message==="retry citation"&&!retry);
+  if(prompt.includes("ASSESSMENT MODE")){
+    const score=message==="score zero"?0:message==="bad score"?999:4;
+    return {response:JSON.stringify({reply:"Check the request against the guidance.",question:"",score:1,criteria:Object.fromEntries(["accuracy","application","reasoning"].map(name=>[name,{score,feedback:"Use the source to explain your action."}])),citations:[{sectionId:source.id,quote:invalid?"This quotation was invented by the model.":source.text.slice(0,120)}]})};
+  }
   return {response:JSON.stringify({reply:retry?"Recovered a source-cited reply.":"Use the steps described in your uploaded guidance.",question:"How would you apply this step?",citations:[{sectionId:source.id,quote:invalid?"This quotation was invented by the model.":source.text.slice(0,120)}]})};
  }
 }
@@ -36,9 +40,12 @@ test("Cloudflare application: sign-in, administration and guidance coaching",asy
   try{
     const db=await mf.getD1Database("DB","guidance");
     for(const name of readdirSync(path("../migrations")).sort()){
+      if(name==="0003_learning_progress.sql")await db.prepare("INSERT INTO coach_sessions (id,user_id,document_id,version,step,messages,updated_at) VALUES ('legacy','legacy-user','legacy-guide',1,0,'[]',1)").run();
       const statements=readFileSync(path(`../migrations/${name}`),"utf8").split(";").map(s=>s.trim()).filter(Boolean);
       await db.batch(statements.map(s=>db.prepare(s)));
     }
+    const migrated=await db.prepare("SELECT level,messages FROM coach_sessions WHERE id='legacy'").first();assert.equal(migrated.level,"beginner");assert.equal(migrated.messages,"[]");
+    await db.prepare("DELETE FROM coach_sessions WHERE id='legacy'").run();
     let adminCookies="",learnerCookies="",documentId;
     const request=async (route,{method="GET",cookies="",data,body,headers={}}={})=>{
       const allHeaders={...headers};if(cookies)allHeaders.Cookie=cookies;
@@ -100,6 +107,8 @@ test("Cloudflare application: sign-in, administration and guidance coaching",asy
       assert.equal(session.messages.length,4);
       const reply=session.messages[3];
       assert.match(reply.content,/source excerpt/);
+      assert.equal(reply.assessmentEligible,false);
+      assert.equal((await request("/api/assessment",{method:"POST",cookies:learnerCookies,data:{documentId,version:1,level:session.level,sessionId:session.id,questionAt:reply.at,answer:"Please explain"}})).status,409);
       assert.ok(!reply.content.includes("This quotation was invented by the model."));
       const guide=(await (await request(`/api/guidance/${documentId}`,{cookies:learnerCookies})).json()).document;
       const cite=reply.citations[0];
@@ -119,8 +128,66 @@ test("Cloudflare application: sign-in, administration and guidance coaching",asy
       const cite=session.messages[5].citations[0];
       assert.ok(guide.sections.find(s=>s.id===cite.sectionId).text.includes(cite.quote));
     });
+    const progress=async(level="beginner",cookies=learnerCookies)=>await (await request(`/api/progress?documentId=${documentId}&level=${level}`,{cookies})).json();
+    const question=async(level="beginner",step=0)=>{
+      const result=await request("/api/coach",{method:"POST",cookies:learnerCookies,data:{documentId,version:1,level,step,message:"New practice question"}});
+      assert.equal(result.status,200);return (await result.json()).session;
+    };
+    const assess=async(session,answer,extra={})=>request("/api/assessment",{method:"POST",cookies:learnerCookies,data:{documentId,version:1,level:session.level,sessionId:session.id,questionAt:session.messages.at(-1).at,answer,...extra}});
+    await t.test("tracks server-calculated scores, prevents duplicate marks and keeps scores on restart",async()=>{
+      assert.equal((await progress()).progress.averageScore,null);
+      const session=await question();
+      const result=await assess(session,"Correct answer",{score:0,userId:"admin"});assert.equal(result.status,200);
+      const graded=await result.json();assert.equal(graded.assessment.score,100);assert.equal(graded.assessment.passed,true);
+      assert.equal(graded.progress.completed,1);assert.equal(graded.progress.percent,50);assert.equal(graded.progress.attempts,1);
+      assert.equal((await assess(session,"Duplicate answer")).status,409);
+      const skipped=await question("beginner",1);assert.equal((await progress()).progress.completed,1);
+      await request("/api/session",{method:"POST",cookies:learnerCookies,data:{documentId,level:"beginner",reset:true}});
+      assert.equal((await progress()).progress.attempts,1);
+      assert.equal((await assess(skipped,"Stale question")).status,409);
+    });
+    await t.test("separates levels and preserves real zero scores",async()=>{
+      const session=await question("intermediate");
+      const result=await assess(session,"score zero");assert.equal(result.status,200);
+      const graded=await result.json();assert.equal(graded.progress.averageScore,0);assert.equal(graded.progress.completed,0);
+      assert.equal((await progress()).progress.averageScore,100);
+      assert.equal((await progress("advanced")).progress.attempts,0);
+      assert.equal((await request("/api/session",{method:"POST",cookies:learnerCookies,data:{documentId,level:"invalid"}})).status,400);
+      const resumed=await (await request("/api/session",{method:"POST",cookies:learnerCookies,data:{documentId,level:"intermediate"}})).json();assert.equal(resumed.session.messages.length,4);
+      const next=await question("intermediate");const better=await assess(next,"Improved answer");assert.equal(better.status,200);
+      assert.equal((await progress("intermediate")).progress.averageScore,100);
+    });
+    await t.test("rejects invalid grades, fabricated citations and AI failures without saving marks",async()=>{
+      const session=await question("advanced");
+      for(const [answer,status] of [["bad score",502],["invalid citation",502],["simulate allowance",503]]){
+        const result=await assess(session,answer);assert.equal(result.status,status);
+        assert.equal((await progress("advanced")).progress.attempts,0);
+      }
+      const resumed=await (await request("/api/session",{method:"POST",cookies:learnerCookies,data:{documentId,level:"advanced"}})).json();assert.equal(resumed.session.messages.length,2);
+      assert.equal((await assess(session,"Correct answer",{sessionId:"forged"})).status,409);
+    });
+    await t.test("isolates learner records and restricts the administrator report",async()=>{
+      assert.equal((await request("/api/progress?admin=1",{cookies:learnerCookies})).status,403);
+      const otherLogin=await request("/api/auth/login",{method:"POST",data:{role:"learner",password:learnerCode}}),other=cookieJar(otherLogin);
+      assert.equal((await progress("beginner",other)).progress.attempts,0);
+      assert.equal((await request(`/api/progress?documentId=${documentId}&level=beginner&userId=admin`,{cookies:other})).status,200);
+      const adminQuestion=(await (await request("/api/coach",{method:"POST",cookies:adminCookies,data:{documentId,version:1,level:"beginner",step:0,message:"Practice"}})).json()).session;
+      assert.equal((await request("/api/assessment",{method:"POST",cookies:adminCookies,data:{documentId,version:1,level:"beginner",sessionId:adminQuestion.id,questionAt:adminQuestion.messages.at(-1).at,answer:"Correct answer"}})).status,200);
+      assert.equal((await request("/api/assessment",{method:"POST",cookies:other,data:{documentId,version:1,level:"beginner",sessionId:adminQuestion.id,questionAt:adminQuestion.messages.at(-1).at,answer:"Forged answer"}})).status,409);
+      const reports=(await (await request("/api/progress?admin=1",{cookies:adminCookies})).json()).reports;
+      assert.equal(reports.length,2);assert.ok(reports.every(row=>row.learner.startsWith("Learner ")));assert.ok(reports.every(row=>row.attempts>0));
+      assert.equal((await request("/api/assessment",{method:"POST",data:{},cookies:other,headers:{Origin:"https://another.example"}})).status,403);
+    });
+    await t.test("concurrent submissions award at most one score for a question",async()=>{
+      const session=await question("advanced");
+      const results=await Promise.all([assess(session,"First answer"),assess(session,"Second answer")]);
+      assert.deepEqual(results.map(r=>r.status).sort(),[200,409]);
+      assert.equal((await progress("advanced")).progress.attempts,1);
+    });
     await t.test("resets walkthroughs for changed guidance and blocks stale editing",async()=>{
       const changed=await request(`/api/guidance/${documentId}`,{method:"PATCH",cookies:adminCookies,data:{version:1,content:"# Updated process\nCheck the request and record the contact details before passing the request to the approved team."}});assert.equal(changed.status,200);assert.equal((await changed.json()).document.version,2);
+      assert.equal((await progress()).progress.attempts,0);
+      assert.equal((await progress("intermediate")).progress.completed,0);
       const stale=await request(`/api/guidance/${documentId}`,{method:"PATCH",cookies:adminCookies,data:{version:1,title:"Stale change"}});assert.equal(stale.status,409);
       const resumed=await (await request("/api/session",{method:"POST",cookies:learnerCookies,data:{documentId}})).json();assert.equal(resumed.session.version,2);assert.equal(resumed.session.messages.length,0);
       assert.equal((await request("/api/coach",{method:"POST",cookies:learnerCookies,data:{documentId,version:1,step:0,message:"Explain"}})).status,409);
@@ -131,16 +198,20 @@ test("Cloudflare application: sign-in, administration and guidance coaching",asy
       assert.equal((await request("/api/session",{method:"POST",cookies:learnerCookies,data:{documentId}})).status,404);
       assert.equal((await request(`/api/guidance/${documentId}`,{method:"DELETE",cookies:adminCookies})).status,200);
       assert.equal((await (await mf.getR2Bucket("BUCKET","guidance")).list()).objects.length,0);
+      assert.equal(await db.prepare("SELECT id FROM learning_attempts WHERE document_id = ?").bind(documentId).first(),null);
       const row=await db.prepare("SELECT id FROM coach_sessions WHERE document_id = ?").bind(documentId).first();assert.equal(row,null);
     });
     await t.test("logout revokes access and keeps browser learner progress on the next login",async()=>{
       await request("/api/session",{method:"POST",cookies:learnerCookies,data:{documentId:"sample-callback"}});
       await request("/api/coach",{method:"POST",cookies:learnerCookies,data:{documentId:"sample-callback",version:1,step:0,message:"Explain this step"}});
+      const sampleSession=(await (await request("/api/session",{method:"POST",cookies:learnerCookies,data:{documentId:"sample-callback"}})).json()).session;
+      const scored=await request("/api/assessment",{method:"POST",cookies:learnerCookies,data:{documentId:"sample-callback",version:1,level:sampleSession.level,sessionId:sampleSession.id,questionAt:sampleSession.messages.at(-1).at,answer:"Correct answer"}});assert.equal(scored.status,200);
       const oldCookies=learnerCookies;
       assert.equal((await request("/api/auth/logout",{method:"POST",cookies:oldCookies})).status,200);
       assert.equal((await request("/api/workspace",{cookies:oldCookies})).status,401);
       const signedIn=await request("/api/auth/login",{method:"POST",cookies:oldCookies,data:{role:"learner",password:learnerCode}});assert.equal(signedIn.status,200);learnerCookies=cookieJar(signedIn);
-      const resumed=await (await request("/api/session",{method:"POST",cookies:learnerCookies,data:{documentId:"sample-callback"}})).json();assert.equal(resumed.session.messages.length,2);
+      const resumed=await (await request("/api/session",{method:"POST",cookies:learnerCookies,data:{documentId:"sample-callback"}})).json();assert.equal(resumed.session.messages.length,4);
+      const savedScores=await (await request("/api/progress?documentId=sample-callback&level=beginner",{cookies:learnerCookies})).json();assert.equal(savedScores.progress.attempts,1);
       assert.equal((await (await request("/api/auth/me",{cookies:learnerCookies})).json()).admin,false);
     });
     await t.test("limits repeated sign-in attempts",async()=>{

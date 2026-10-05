@@ -10,6 +10,8 @@ A guidance learning site with an AI coach. Administrators upload and publish gui
 - PDF, Word `.docx`, text and Markdown upload, with editable extracted text before publishing.
 - Drafts, publishing, version changes, original-file downloads and deletion.
 - Section-by-section coaching, questions, practice examples and saved walkthroughs.
+- Beginner, Intermediate and Advanced levels, scored practice answers and saved progress.
+- An admin progress report using anonymous learner browser references.
 - A focused learning screen with one guidance picker and the current coaching reply. Source guidance, conversation history, extra help and voice settings open when needed. Dictated answers are reviewed before sending; unsent answers must be sent or cleared before moving to the next step.
 - Cloudflare Workers AI, D1 database, private R2 file storage and static assets.
 - Database migrations, deployment scripts, pinned dependencies and GitHub build checks.
@@ -41,7 +43,7 @@ npm run check
 npm test
 ```
 
-Tests run the actual bundled Worker in Cloudflare's local runtime with local D1 and R2. AI is replaced with a controlled test service: tests verify access control, publishing, uploads/downloads, persistent sessions, rejected fabricated quotations, guidance version changes and logout. They do not spend AI allowance or deploy to Cloudflare.
+Tests run the actual bundled Worker in Cloudflare's local runtime with local D1 and R2. AI is replaced with a controlled test service: tests verify access control, publishing, uploads/downloads, persistent sessions, level isolation, scoring, duplicate and concurrent submissions, restricted progress reports, rejected fabricated quotations, guidance version changes and logout. They do not spend AI allowance or deploy to Cloudflare.
 
 ## Architecture
 
@@ -53,6 +55,7 @@ Tests run the actual bundled Worker in Cloudflare's local runtime with local D1 
 | Cookie sessions and role checks | `src/auth.ts` |
 | Uploads, guidance and coaching API | `src/lib/server.ts` |
 | Section extraction, retrieval and quote validation | `src/lib/guidance.ts` |
+| Learning levels, scoring and progress summaries | `src/lib/progress.ts`, `src/components/LearningProgress.tsx` |
 | Database | `DB` binding, `migrations/` |
 | Original uploaded files | `BUCKET` binding |
 | AI inference | `AI` binding |
@@ -64,7 +67,17 @@ The model is set through `AI_MODEL` in `wrangler.jsonc`. Coaching retrieves up t
 
 The owner sets one admin password and a separate shared learner access code. Learners cannot edit guidance or open drafts. Sign-in sessions use HttpOnly cookies and hashed session tokens in D1. Changing a password or access code invalidates the corresponding sign-in sessions.
 
-Learner progress belongs to that browser, identified by a cookie. Signing out keeps the browser identity so signing back in restores progress. Clearing cookies or changing devices creates a new learner identity. This version does not include named user accounts or progress reporting by employee. Administrator sessions share the administrator identity.
+Learner progress belongs to that browser, identified by a cookie. Signing out keeps the browser identity so signing back in restores progress. Clearing cookies or changing devices creates a new learner identity. Admin can review scores under **Learner progress**, using anonymous browser references. This version does not include named user accounts or reporting by employee. Administrator sessions share the administrator identity.
+
+## Learning levels and scores
+
+Choose a guide and a learning level. Each level has its own saved conversation and score record. Beginner uses explanations and simple questions; Intermediate uses practical situations; Advanced asks for reasoned decisions and supported exceptions. All levels use the uploaded guidance.
+
+Answer a practice question using **Answer for a score**, then **Check answer**. **Ask a question** gives ordinary coaching without awarding marks. Accuracy, applying the guidance and explaining your decision each receive 0–4 points; the server calculates a percentage out of 12. A score of 70% or more passes that section. Moving on does not award marks. **My progress** shows passed steps, each step’s best score, the average of best scores for attempted steps, and recent attempts. Unattempted sections have no score.
+
+Scores are AI practice feedback, not a qualification or formal competence assessment. Restarting a walkthrough keeps scores; changing the guidance text creates a fresh record for its new version. Earlier version scores remain stored, but current progress and the admin report show only the current version. Deleting a guide deletes its conversations and scores. Failed source checks or AI errors do not save a score.
+
+Migration `0003_learning_progress.sql` adds levels to existing sessions and creates the assessment history. Existing sessions become Beginner. `npm run deploy` applies all migrations before deploying.
 
 ## Limits
 

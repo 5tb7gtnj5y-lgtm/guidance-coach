@@ -6,7 +6,7 @@ export default {
   async fetch(req:Request,env:Runtime):Promise<Response>{
     const path=new URL(req.url).pathname;let response:Response;
     if(path==="/api/health"){
-      let databaseReady=false;try{if(env.DB){await env.DB.prepare("SELECT id FROM guidance LIMIT 1").first();await env.DB.prepare("SELECT token_hash FROM auth_sessions LIMIT 1").first();databaseReady=true;}}catch{}
+      let databaseReady=false;try{if(env.DB){await env.DB.prepare("SELECT id FROM guidance LIMIT 1").first();await env.DB.prepare("SELECT token_hash FROM auth_sessions LIMIT 1").first();await env.DB.prepare("SELECT id FROM learning_attempts LIMIT 1").first();await env.DB.prepare("SELECT level FROM coach_sessions LIMIT 1").first();databaseReady=true;}}catch{}
       const adminConfigured=!!env.ADMIN_PASSWORD&&env.ADMIN_PASSWORD.length>=12,learnerConfigured=!!env.LEARNER_ACCESS_CODE&&env.LEARNER_ACCESS_CODE.length>=8;
       response=Response.json({status:databaseReady&&env.BUCKET&&env.AI&&adminConfigured&&learnerConfigured?"ready":"setup-required",databaseReady,storageBinding:!!env.BUCKET,aiBinding:!!env.AI,adminConfigured,learnerConfigured,version:"1.0.0"},{headers:{"Cache-Control":"no-store"}});
     }else if(path.startsWith("/api/auth/"))response=await handleAuth(req,env);

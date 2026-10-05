@@ -1,8 +1,9 @@
+import type { LearningLevel, Assessment } from "./progress";
 export type Section = { id: string; title: string; text: string; page: number | null };
 export type Guidance = { id: string; title: string; description: string; filename: string; format: string; status: string; version: number; sample: boolean; sections: Section[]; updatedAt: number; content?: string };
 export type Citation = { sectionId: string; quote: string };
-export type ChatMessage = { role: "user" | "assistant"; content: string; question?: string; citations?: Citation[]; at: number };
-export type Session = { id: string; documentId: string; version: number; step: number; messages: ChatMessage[] };
+export type ChatMessage = { role: "user" | "assistant"; content: string; question?: string; citations?: Citation[]; assessment?: Assessment; assessmentEligible?: boolean; step?: number; level?: LearningLevel; at: number };
+export type Session = { id: string; documentId: string; version: number; step: number; level: LearningLevel; messages: ChatMessage[] };
 
 export const sampleText = `# Handling a request for a call back
 This is a fictional training guide. It is here to show how Guidance Coach works and is not an official procedure.
@@ -116,6 +117,7 @@ export async function verifiedCoachReply(generate:(retry:boolean)=>Promise<strin
       return {
         content:`I couldn’t verify the generated explanation. Here is a source excerpt from “${section.title}”:\n\n${quote}`,
         question:"Which part of this guidance would you like help with?",
+        assessmentEligible:false,
         citations:[{sectionId:section.id,quote}],
       };
     }
