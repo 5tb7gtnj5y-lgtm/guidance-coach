@@ -12,6 +12,7 @@ A guidance learning site with an AI coach. Administrators upload and publish gui
 - Section-by-section coaching, questions, practice examples and saved walkthroughs.
 - Beginner, Intermediate and Advanced levels, scored practice answers and saved progress.
 - An admin progress report using anonymous learner browser references.
+- A CAISY-inspired practice studio: setup and level selection on the left, a central coach with Chat/Voice controls, and guidance context plus a collapsible transcript on the right. The panels stack on smaller screens. Voice mode enables spoken replies but opens the microphone only when Talk is pressed. Scores appear only after Finish session.
 - A focused learning screen with one guidance picker and the current coaching reply. Source guidance, conversation history, extra help and voice settings open when needed. Dictated answers are reviewed before sending; unsent answers must be sent or cleared before moving to the next step.
 - Cloudflare Workers AI, D1 database, private R2 file storage and static assets.
 - Database migrations, deployment scripts, pinned dependencies and GitHub build checks.
