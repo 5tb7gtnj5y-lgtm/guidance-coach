@@ -2,8 +2,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { BookOpen, MessageCircle, Upload, FileText, ShieldCheck, Check, X, Download, Plus, LoaderCircle, Eye, Trash2, CheckCircle2, Mic, Volume2, Square } from "lucide-react";
 import { splitGuidance, type Guidance, type Section, type Session, type Citation, type ChatMessage } from "@/lib/guidance";
-import { levels, criterionNames, type LearningLevel, type Progress } from "@/lib/progress";
-import { LearningProgress, LearnerProgressReport } from "./LearningProgress";
+import { levels, type LearningLevel, type Progress } from "@/lib/progress";
+import { LearningProgress, LearnerProgressReport, SessionResults } from "./LearningProgress";
 import { extractFile } from "@/lib/extract";
 import { useVoice } from "@/lib/useVoice";
 
@@ -12,11 +12,12 @@ async function api<T>(path:string,options:RequestInit={}):Promise<T>{
   if(!result.ok)throw new Error(data.error||"The request could not be completed. Please try again.");return data;
 }
 const json=(data:unknown)=>({method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});
+const replyMode=(session:Session):"answer"|"ask"=>{const reply=session.messages.at(-1);return !session.finishedAt&&reply?.question&&reply.assessmentEligible?"answer":"ask";};
 type WorkspaceData={admin:boolean;email:string;documents:Guidance[];aiConfigured:boolean};
 function SourceText({section,quote}:{section:Section;quote:string}){if(!quote||!section.text.includes(quote))return <p className="source-text">{section.text}</p>;const i=section.text.indexOf(quote);return <p className="source-text">{section.text.slice(0,i)}<mark>{quote}</mark>{section.text.slice(i+quote.length)}</p>;}
 function CoachMessage({message,onSource,sections}:{message:ChatMessage;onSource:(citation:Citation)=>void;sections:Section[]}){
   const citations=message.citations||[];
-  return <article className={`chat-message ${message.role}`}><div className="message-byline">{message.role==="assistant"?"Guidance coach":"You"}</div><div className="message-content"><p>{message.content}</p>{message.assessment&&<div className="assessment-result" role="status"><strong>{message.assessment.score}% · {message.assessment.passed?"Step passed":"Keep practising"}</strong><details><summary>How this was scored</summary><ul>{(Object.keys(criterionNames) as (keyof typeof criterionNames)[]).map(name=><li key={name}><strong>{criterionNames[name]}: {message.assessment!.criteria[name].score}/4</strong><p>{message.assessment!.criteria[name].feedback}</p></li>)}</ul><p className="small-note">AI practice feedback · Pass mark 70%</p></details></div>}{message.question&&<div className="coach-question"><p>{message.question}</p></div>}{citations.length===1&&<button className="text-button source-link" onClick={()=>onSource(citations[0])}><BookOpen size={16}/>View the source</button>}{citations.length>1&&<details className="source-references"><summary>View sources ({citations.length})</summary><div>{citations.map((citation,index)=><button key={index} className="text-button source-link" onClick={()=>onSource(citation)}><BookOpen size={16}/>{sections.find(s=>s.id===citation.sectionId)?.title||`Source ${index+1}`}</button>)}</div></details>}</div></article>;
+  return <article className={`chat-message ${message.role}`}><div className="message-byline">{message.role==="assistant"?"Guidance coach":"You"}</div><div className="message-content"><p>{message.content}</p>{message.question&&<div className="coach-question"><p>{message.question}</p></div>}{citations.length===1&&<button className="text-button source-link" onClick={()=>onSource(citations[0])}><BookOpen size={16}/>View the source</button>}{citations.length>1&&<details className="source-references"><summary>View sources ({citations.length})</summary><div>{citations.map((citation,index)=><button key={index} className="text-button source-link" onClick={()=>onSource(citation)}><BookOpen size={16}/>{sections.find(s=>s.id===citation.sectionId)?.title||`Source ${index+1}`}</button>)}</div></details>}</div></article>;
 }
 
 export default function Workspace({onSignOut}:{onSignOut:()=>void}){
@@ -24,18 +25,19 @@ export default function Workspace({onSignOut}:{onSignOut:()=>void}){
   const [view,setView]=useState<"learn"|"admin">("learn"),[session,setSession]=useState<Session|null>(null),[source,setSource]=useState(0),[quote,setQuote]=useState("");
   const [input,setInput]=useState(""),[busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[error,setError]=useState(""),[notice,setNotice]=useState(""),[workspaceTab,setWorkspaceTab]=useState("coach");
   const [editor,setEditor]=useState(false),[editing,setEditing]=useState<Guidance|null>(null),[title,setTitle]=useState(""),[description,setDescription]=useState(""),[text,setText]=useState(""),[file,setFile]=useState<File|null>(null),[extracting,setExtracting]=useState(false),[deleteTarget,setDeleteTarget]=useState<Guidance|null>(null),[restart,setRestart]=useState(false);
+  const [results,setResults]=useState<Progress|null>(null);
   const [progress,setProgress]=useState<Progress|null>(null),[answerMode,setAnswerMode]=useState<"answer"|"ask">("ask");
   const messagesEnd=useRef<HTMLDivElement>(null),fileInput=useRef<HTMLInputElement>(null),dialogRef=useRef<HTMLDialogElement>(null),confirmRef=useRef<HTMLDialogElement>(null),loadSequence=useRef(0),busyRef=useRef(false),sourceSelectRef=useRef<HTMLSelectElement>(null),composerRef=useRef<HTMLTextAreaElement>(null);
   const voice=useVoice(setInput,view==="learn"&&!!session&&!loading,busy);
   const published=useMemo(()=>docs.filter(d=>d.status==="published"),[docs]);
   const choose=useCallback(async (doc:Guidance,level?:LearningLevel)=>{
     voice.cancel();
-    const seq=++loadSequence.current;setSelected(doc);setSource(0);setQuote("");setSession(null);setProgress(null);setError("");setInput("");setWorkspaceTab("coach");
+    const seq=++loadSequence.current;setSelected(doc);setSource(0);setQuote("");setSession(null);setProgress(null);setResults(null);setError("");setInput("");setWorkspaceTab("coach");
     if(doc.status!=="published")return;
     setLoading(true);
-    try{const result=await api<{session:Session}>("session",json({documentId:doc.id,...(level?{level}:{})}));
+    try{const result=await api<{session:Session;results:Progress|null}>("session",json({documentId:doc.id,...(level?{level}:{})}));
       const scores=await api<{progress:Progress}>(`progress?documentId=${encodeURIComponent(doc.id)}&level=${result.session.level}`);
-      if(seq===loadSequence.current){setSession(result.session);setSource(result.session.step);setProgress(scores.progress);}}
+      if(seq===loadSequence.current){setSession(result.session);setAnswerMode(replyMode(result.session));setResults(result.results);setSource(result.session.step);setProgress(scores.progress);}}
     catch(e){if(seq===loadSequence.current)setError((e as Error).message);}finally{if(seq===loadSequence.current)setLoading(false);}
   },[voice.cancel]);
   const refresh=useCallback(async (admin=false,keepId?:string)=>{
@@ -52,7 +54,7 @@ export default function Workspace({onSignOut}:{onSignOut:()=>void}){
     if(!selected||!session||busyRef.current||voice.state.listening||!message.trim())return null;
     voice.cancel();
     busyRef.current=true;setBusy(true);setError("");
-    try{const result=await api<{session:Session}>("coach",json({documentId:selected.id,version:selected.version,message:message.trim(),step:step??session.step,level:session.level}));setSession(result.session);setSource(result.session.step);setQuote("");setInput(draft=>draft.trim()===message.trim()?"":draft);const reply=result.session.messages.at(-1);if(reply?.role==="assistant")voice.readNewReply([reply.content,reply.question].filter(Boolean).join("\n"));return result.session;}
+    try{const result=await api<{session:Session}>("coach",json({documentId:selected.id,version:selected.version,message:message.trim(),step:step??session.step,level:session.level}));setSession(result.session);setAnswerMode(replyMode(result.session));setSource(result.session.step);setQuote("");setInput(draft=>draft.trim()===message.trim()?"":draft);const reply=result.session.messages.at(-1);if(reply?.role==="assistant")voice.readNewReply([reply.content,reply.question].filter(Boolean).join("\n"));return result.session;}
     catch(e){setError((e as Error).message);throw e;}finally{busyRef.current=false;setBusy(false);}
   },[selected,session,voice.cancel,voice.readNewReply,voice.state.listening]);
   const safelySend=(message:string,step?:number)=>void send(message,step).catch(()=>{});
@@ -66,20 +68,27 @@ export default function Workspace({onSignOut}:{onSignOut:()=>void}){
     setEditor(false);setNotice(editing?"Guidance updated.":"Guidance saved as a draft. Publish it when you are ready.");await refresh(true);return result.document;
   }catch(e){setError((e as Error).message);}finally{busyRef.current=false;setBusy(false);}};
   const publish=async(doc:Guidance)=>{setBusy(true);setError("");try{await api(`guidance/${doc.id}`,{...json({status:doc.status==="published"?"draft":"published",version:doc.version}),method:"PATCH"});await refresh(true);setNotice(doc.status==="published"?"Guidance unpublished. It is now visible only in Admin.":"Guidance published. Learners can now work through it.");}catch(e){setError((e as Error).message);}finally{setBusy(false);}};
-  const confirmAction=async()=>{voice.cancel();setBusy(true);setError("");try{if(deleteTarget){await api(`guidance/${deleteTarget.id}`,{method:"DELETE"});setDeleteTarget(null);setNotice("Guidance deleted.");await refresh(true);}else if(restart&&selected){const result=await api<{session:Session}>("session",json({documentId:selected.id,reset:true,level:session?.level}));setSession(result.session);setSource(0);setQuote("");setRestart(false);}}catch(e){setError((e as Error).message);setDeleteTarget(null);setRestart(false);}finally{setBusy(false);}};
+  const confirmAction=async()=>{voice.cancel();setBusy(true);setError("");try{if(deleteTarget){await api(`guidance/${deleteTarget.id}`,{method:"DELETE"});setDeleteTarget(null);setNotice("Guidance deleted.");await refresh(true);}else if(restart&&selected){const result=await api<{session:Session}>("session",json({documentId:selected.id,reset:true,level:session?.level}));setSession(result.session);setAnswerMode(replyMode(result.session));setResults(null);setInput("");setSource(0);setQuote("");setRestart(false);}}catch(e){setError((e as Error).message);setDeleteTarget(null);setRestart(false);}finally{setBusy(false);}};
   const showCitation=(citation:Citation)=>{if(!selected)return;voice.cancel();const i=selected.sections.findIndex(s=>s.id===citation.sectionId);if(i<0)return;setSource(i);setQuote(citation.quote);setWorkspaceTab("source");};
   const current=selected?.sections[session?.step||0],sourceSection=selected?.sections[source];
   const latestIndex=session?session.messages.map(m=>m.role).lastIndexOf("assistant"):-1;
   const latestReply=session?.messages[latestIndex];
-  const canAnswer=!!latestReply?.question&&!!latestReply.assessmentEligible&&!latestReply.assessment&&latestReply.step===session?.step&&latestReply.level===session?.level;
-  useEffect(()=>{setAnswerMode(canAnswer?"answer":"ask");},[latestReply?.at,canAnswer]);
+  const canAnswer=!!latestReply?.question&&!!latestReply.assessmentEligible&&!session?.finishedAt&&latestReply.step===session?.step&&latestReply.level===session?.level;
   const submitAnswer=async()=>{
     if(!selected||!session||!canAnswer||busyRef.current||voice.state.listening||!input.trim())return;
     const answer=input.trim();voice.cancel();busyRef.current=true;setBusy(true);setError("");
     try{
       const result=await api<{session:Session;progress:Progress}>("assessment",json({documentId:selected.id,version:selected.version,level:session.level,sessionId:session.id,questionAt:latestReply!.at,answer}));
-      setSession(result.session);setProgress(result.progress);setInput(draft=>draft.trim()===answer?"":draft);
-      const reply=result.session.messages.at(-1);if(reply)voice.readNewReply(`${reply.assessment?.score}% score. ${reply.content}`);
+      setSession(result.session);setAnswerMode(replyMode(result.session));setProgress(result.progress);setInput(draft=>draft.trim()===answer?"":draft);
+      const reply=result.session.messages.at(-1);if(reply)voice.readNewReply([reply.content,reply.question].filter(Boolean).join("\n"));
+    }catch(e){setError((e as Error).message);}finally{busyRef.current=false;setBusy(false);}
+  };
+  const finishSession=async()=>{
+    if(!selected||!session||busyRef.current||voice.state.listening||input.trim())return;
+    voice.cancel();busyRef.current=true;setBusy(true);setError("");
+    try{
+      const result=await api<{session:Session;results:Progress}>("session/end",json({documentId:selected.id,version:selected.version,level:session.level,sessionId:session.id,lastMessageAt:session.messages.at(-1)?.at}));
+      setSession(result.session);setAnswerMode(replyMode(result.session));setResults(result.results);setWorkspaceTab("coach");
     }catch(e){setError((e as Error).message);}finally{busyRef.current=false;setBusy(false);}
   };
   const submit=()=>{if(answerMode==="answer"&&canAnswer)void submitAnswer();else safelySend(input);};
@@ -108,12 +117,12 @@ export default function Workspace({onSignOut}:{onSignOut:()=>void}){
       <section className="learning-card" aria-label="Guidance learning workspace">
         {selected&&current&&<header className="lesson-heading"><p className="step-count">{workspaceTab==="coach"?`Step ${(session?.step||0)+1} of ${selected.sections.length}`:"Source guidance"}</p><h2>{workspaceTab==="coach"?current.title:selected.title}</h2><div hidden={workspaceTab!=="coach"} className="progress-track" role="progressbar" aria-label="Current walkthrough section" aria-valuemin={0} aria-valuemax={selected.sections.length} aria-valuenow={(session?.step||0)+1}><span style={{width:`${((session?.step||0)+1)/selected.sections.length*100}%`}}/></div></header>}
         {selected&&<div className="workspace-switch" role="group" aria-label="Learning view"><button aria-pressed={workspaceTab==="coach"} onClick={()=>{voice.cancel();setWorkspaceTab("coach");}}>Coach</button><button aria-pressed={workspaceTab==="source"} onClick={()=>{voice.cancel();setSource(session?.step||0);setQuote("");setWorkspaceTab("source");}}>Read guidance</button></div>}
-        <div className="lesson-body" hidden={workspaceTab!=="coach"}>
+        <div className="lesson-body" hidden={workspaceTab!=="coach"||!!session?.finishedAt}>
           {loading?<div className="empty-state"><LoaderCircle className="spin"/><p>Opening your guidance…</p></div>:!selected?<div className="empty-state"><BookOpen size={36}/><h2>No guidance published yet</h2><p>{data?.admin?"Add and publish guidance in Admin to begin.":"Your administrator will publish guidance here."}</p>{data?.admin&&<button className="primary" onClick={()=>switchView("admin")}>Open Admin</button>}</div>:!session?<div className="empty-state"><p>Your guidance could not be opened.</p><button className="secondary" onClick={()=>void choose(selected)}>Try again</button></div>:<>
-            {!session.messages.length?<div className="welcome-message"><h3>Ready to begin?</h3><p>The coach will explain each step and help you practise. You can ask questions as you go.</p>{selected.sample&&<p className="sample-note">This is a fictional sample guide.</p>}<button className="primary" disabled={busy||voice.state.listening} onClick={()=>safelySend("Start a walkthrough of the current section. Explain what I need to do, then ask me one question about applying it.")}>Start walkthrough</button></div>:<>
+            {!session.messages.length?<div className="welcome-message"><h3>Ready to begin?</h3><p>The coach will explain each step and help you practise. Ask questions as you go; your results appear when you finish the session.</p>{selected.sample&&<p className="sample-note">This is a fictional sample guide.</p>}<button className="primary" disabled={busy||voice.state.listening} onClick={()=>safelySend("Start a walkthrough of the current section. Explain what I need to do, then ask me one question about applying it.")}>Start walkthrough</button></div>:<>
               {latestIndex>0&&<details className="conversation-history"><summary>Previous conversation</summary><div>{session.messages.slice(0,latestIndex).map((m,i)=><CoachMessage key={`${m.at}-${i}`} message={m} onSource={showCitation} sections={selected.sections}/>)}</div></details>}
               <div className="current-reply" role="log" aria-live="polite" aria-label="Current coaching reply" aria-busy={busy}>{latestReply&&<CoachMessage message={latestReply} onSource={showCitation} sections={selected.sections}/>}</div>
-              {latestReply?.assessment&&<button className="secondary small" disabled={busy||voice.state.listening||!!input.trim()} onClick={()=>safelySend("Ask a new practice question for this section at my learning level. Use the guidance and let me answer before giving feedback.")}>Try another question</button>}
+              {latestReply?.assessment&&!latestReply.question&&<button className="secondary small" disabled={busy||voice.state.listening||!!input.trim()} onClick={()=>safelySend("Ask a new practice question for this section at my learning level. Use the guidance and let me answer before giving feedback.")}>Continue practising</button>}
               <div className="reply-tools"><button className="text-button" disabled={!latestReply||!voice.state.outputSupported||busy||loading} onClick={()=>voice.read([latestReply?.content,latestReply?.question].filter(Boolean).join("\n"))}><Volume2 size={16}/>Read reply</button>{voice.state.speaking&&<button className="text-button" onClick={voice.stop}><Square size={14}/>Stop reading</button>}<details className="extra-help"><summary>More help</summary><div><button className="secondary small" disabled={busy||voice.state.listening} onClick={()=>safelySend("Explain this current section more simply and stay with this step.")}>Explain simply</button><button className="secondary small" disabled={busy||voice.state.listening} onClick={()=>safelySend("Give me a clearly labelled fictional practice example for this current section.")}>Give an example</button></div></details></div>
             </>}
             {busy&&<p className="thinking" role="status"><LoaderCircle size={16} className="spin"/>Checking your guidance…</p>}
@@ -121,22 +130,24 @@ export default function Workspace({onSignOut}:{onSignOut:()=>void}){
           </>}
           {selected&&session&&<div className="simple-composer">
             <form onSubmit={e=>{e.preventDefault();submit();}}>
-              {canAnswer&&<div className="answer-mode" role="group" aria-label="Message type"><button type="button" aria-pressed={answerMode==="answer"} disabled={busy} onClick={()=>setAnswerMode("answer")}>Answer for a score</button><button type="button" aria-pressed={answerMode==="ask"} disabled={busy} onClick={()=>setAnswerMode("ask")}>Ask a question</button></div>}
-              <label htmlFor="coach-message">{answerMode==="answer"&&canAnswer?"Your answer to the practice question":"Your question for the coach"}</label>
+              {canAnswer&&<div className="answer-mode" role="group" aria-label="Message type"><button type="button" aria-pressed={answerMode==="answer"} disabled={busy} onClick={()=>setAnswerMode("answer")}>Answer</button><button type="button" aria-pressed={answerMode==="ask"} disabled={busy} onClick={()=>setAnswerMode("ask")}>Ask a question</button></div>}
+              <label htmlFor="coach-message">Your message</label>
               <textarea ref={composerRef} id="coach-message" value={input} maxLength={1800} onChange={e=>setInput(e.target.value)} placeholder="Type here, or use Talk…" disabled={busy||loading} readOnly={voice.state.listening} rows={3} onKeyDown={e=>{if(e.key==="Enter"&&(e.ctrlKey||e.metaKey)){e.preventDefault();submit();}}}/>
-              <div className="answer-actions"><button className={`secondary ${voice.state.listening?"listening":""}`} type="button" aria-pressed={voice.state.listening} disabled={!voice.state.inputSupported||busy||loading||voice.state.stopping} onClick={()=>voice.talk(input)}>{voice.state.listening?<Square size={16}/>:<Mic size={16}/>} {voice.state.stopping?"Finishing…":voice.state.listening?"Stop listening":"Talk"}</button><span className="dictation-hint">{voice.state.listening?"Speak, then stop and check your words.":"Check your words before sending."}</span><button className="primary" type="submit" disabled={!input.trim()||busy||loading||voice.state.listening} aria-label={answerMode==="answer"&&canAnswer?"Check your answer":"Send your question"}>{answerMode==="answer"&&canAnswer?"Check answer":"Send"}</button></div>
+              <div className="answer-actions"><button className={`secondary ${voice.state.listening?"listening":""}`} type="button" aria-pressed={voice.state.listening} disabled={!voice.state.inputSupported||busy||loading||voice.state.stopping} onClick={()=>voice.talk(input)}>{voice.state.listening?<Square size={16}/>:<Mic size={16}/>} {voice.state.stopping?"Finishing…":voice.state.listening?"Stop listening":"Talk"}</button><span className="dictation-hint">{voice.state.listening?"Speak, then stop and check your words.":"Check your words before sending."}</span><button className="primary" type="submit" disabled={!input.trim()||busy||loading||voice.state.listening} aria-label="Send your message">Send</button></div>
             </form>
             {voice.notice.text&&<p className={`voice-status ${voice.notice.error?"voice-error":""}`} role="status">{voice.notice.text}</p>}
             {!voice.state.inputSupported&&<p className="small-note">Talk is unavailable in this browser. You can type or use keyboard dictation.</p>}
             <details className="voice-settings"><summary>Voice settings</summary><div><label className="voice-option"><input type="checkbox" checked={voice.autoRead} onChange={e=>voice.toggleAuto(e.target.checked)} disabled={!voice.state.outputSupported}/>Read replies aloud automatically</label><label className="voice-select">Voice<select aria-label="Reading voice" value={voice.voiceURI} onChange={e=>voice.selectVoice(e.target.value)} disabled={!voice.state.outputSupported}><option value="">Automatic English voice</option>{voice.voices.map(v=><option value={v.voiceURI} key={v.voiceURI}>{v.name} ({v.lang})</option>)}</select></label><p className="small-note">Your browser may use its speech service to process audio.</p></div></details>
-            {session.messages.length>0&&<div className="step-actions"><button className="text-button" disabled={busy||loading||voice.state.listening} onClick={()=>{voice.cancel();setRestart(true);}}>Restart walkthrough</button><button className="primary" disabled={busy||loading||voice.state.listening||!!input.trim()} title={input.trim()?"Send or clear your answer before moving on":undefined} onClick={()=>safelySend(session.step+1<selected.sections.length?"Take me through the next section. Explain the actions I need to take and ask one application question.":"Review the current section and help me check whether I understand how to use it.",Math.min(session.step+1,selected.sections.length-1))}>{session.step+1<selected.sections.length?"Next step":"Review final step"}</button></div>}
+            {session.messages.length>0&&<div className="step-actions"><button className="text-button" disabled={busy||loading||voice.state.listening} onClick={()=>{voice.cancel();setRestart(true);}}>Restart walkthrough</button><div className="button-row">{session.step+1<selected.sections.length&&<button className="secondary" disabled={busy||loading||voice.state.listening||!!input.trim()} onClick={()=>void finishSession()}>Finish session</button>}<button className="primary" disabled={busy||loading||voice.state.listening||!!input.trim()} title={input.trim()?"Send or clear your message before continuing":undefined} onClick={()=>{if(session.step+1<selected.sections.length)safelySend("Take me through the next section. Explain the actions I need to take and ask one application question.",session.step+1);else void finishSession();}}>{session.step+1<selected.sections.length?"Next step":"Finish session"}</button></div></div>}
+
           </div>}
         </div>
+        {session?.finishedAt&&workspaceTab==="coach"&&results&&<SessionResults results={results} busy={busy} onRestart={()=>{voice.cancel();setRestart(true);}}/>}
         <div className="guidance-reader" hidden={workspaceTab!=="source"}>
           {selected&&sourceSection&&<><div className="reader-controls"><label htmlFor="source-section">Choose a section</label><select ref={sourceSelectRef} id="source-section" value={source} onChange={e=>{voice.cancel();setSource(Number(e.target.value));setQuote("");}}>{selected.sections.map((s,i)=><option key={s.id} value={i}>{i+1}. {s.title}</option>)}</select><div><button className="text-button" disabled={!voice.state.outputSupported||busy||loading} onClick={()=>voice.read(`${sourceSection.title}. ${sourceSection.text}`)}><Volume2 size={16}/>Read section</button>{voice.state.speaking&&<button className="text-button" onClick={voice.stop}><Square size={14}/>Stop reading</button>}<a href={`/api/guidance/${selected.id}/original`}><Download size={16}/>Download original</a></div></div><article className="reader-text"><h3>{sourceSection.title}</h3><SourceText section={sourceSection} quote={quote}/></article><button className="primary" onClick={()=>{voice.cancel();setWorkspaceTab("coach");}}>Back to coach</button></>}
         </div>
       </section>
-      {selected&&session&&<LearningProgress progress={progress} busy={busy||loading||voice.state.listening||!!input.trim()} onPractise={step=>{voice.cancel();setWorkspaceTab("coach");safelySend("Ask a new practice question for this section at my learning level. Let me answer before giving feedback.",step);}}/>}
+      {selected&&session?.finishedAt&&<LearningProgress progress={progress} busy={busy||loading||voice.state.listening||!!input.trim()} onPractise={()=>{voice.cancel();setRestart(true);}}/>}
       {selected&&<p className="source-reminder">Check the source guidance before using an answer in your work.</p>}
     </div>}
     </main>

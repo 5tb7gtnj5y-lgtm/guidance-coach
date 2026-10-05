@@ -3,7 +3,7 @@ export type Section = { id: string; title: string; text: string; page: number | 
 export type Guidance = { id: string; title: string; description: string; filename: string; format: string; status: string; version: number; sample: boolean; sections: Section[]; updatedAt: number; content?: string };
 export type Citation = { sectionId: string; quote: string };
 export type ChatMessage = { role: "user" | "assistant"; content: string; question?: string; citations?: Citation[]; assessment?: Assessment; assessmentEligible?: boolean; step?: number; level?: LearningLevel; at: number };
-export type Session = { id: string; documentId: string; version: number; step: number; level: LearningLevel; messages: ChatMessage[] };
+export type Session = { id: string; documentId: string; version: number; step: number; level: LearningLevel; finishedAt?: number | null; messages: ChatMessage[] };
 
 export const sampleText = `# Handling a request for a call back
 This is a fictional training guide. It is here to show how Guidance Coach works and is not an official procedure.

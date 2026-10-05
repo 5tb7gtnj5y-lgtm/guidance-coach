@@ -9,7 +9,7 @@ export function validLevel(value:unknown):value is LearningLevel{return typeof v
 export const passScore=70;
 export const criterionNames={accuracy:'Accuracy',application:'Applying the guidance',reasoning:'Explaining your decision'} as const;
 export type Criterion=keyof typeof criterionNames;
-export type Assessment={score:number;passed:boolean;feedback:string;criteria:Record<Criterion,{score:number;feedback:string}>;citations:Citation[]};
+export type Assessment={score:number;passed:boolean;feedback:string;question?:string;criteria:Record<Criterion,{score:number;feedback:string}>;citations:Citation[]};
 export type Attempt={id:string;sectionId:string;sectionTitle:string;score:number;at:number;assessment:Assessment};
 export type Progress={level:LearningLevel;version:number;totalSections:number;completed:number;percent:number;averageScore:number|null;attempts:number;sections:{id:string;title:string;bestScore:number|null;latestScore:number|null;attempts:number;completed:boolean}[];history:Attempt[]};
 export type LearnerReport={learner:string;documentId:string;title:string;level:LearningLevel;completed:number;totalSections:number;averageScore:number|null;attempts:number;lastAt:number};
@@ -26,7 +26,7 @@ export function parseAssessment(raw:string,sections:Section[]):Assessment{
     criteria[name]={score:value.score,feedback:value.feedback.trim()};
   }
   const score=Math.round(Object.values(criteria).reduce((n,c)=>n+c.score,0)/12*100);
-  return {score,passed:score>=passScore,feedback:verified.content,criteria,citations:verified.citations};
+  return {score,passed:score>=passScore,feedback:verified.content,question:verified.question,criteria,citations:verified.citations};
 }
 export function summariseProgress(rows:AttemptRow[],sections:Section[],level:LearningLevel,version:number):Progress{
   const relevant=rows.filter(r=>r.level===level&&r.version===version&&sections.some(s=>s.id===r.section_id)).sort((a,b)=>b.created_at-a.created_at||b.id.localeCompare(a.id));
